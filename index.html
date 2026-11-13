@@ -1,1 +1,145 @@
 
+
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Binance 9 Mum Tarayıcı</title>
+<style>
+body{background:#10151d;color:#eee;font-family:Arial,sans-serif;padding:18px;margin:0}
+h2{color:#f0b90b}
+button{background:#f0b90b;border:0;padding:13px 20px;border-radius:8px;font-weight:bold}
+.info{color:#aaa;font-size:13px;margin:14px 0}
+.card{background:#1c2633;padding:14px;border-radius:10px;margin:10px 0}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:12px 5px;border-bottom:1px solid #34404d;text-align:left}
+.green{color:#20c77a;font-weight:bold}
+#status{color:#f0b90b}
+</style>
+</head>
+<body>
+<h2>🟡 BINANCE 9 YEŞİL MUM TARAMA</h2>
+<p>1 saat ve 4 saat grafiklerinde son 9 kapanmış mumun tamamı yeşil olan coinler.</p>
+<button onclick="scan()">TARAMAYI BAŞLAT</button>
+<div class="info" id="status">Tarama başlatılmayı bekliyor.</div>
+<div class="card">
+  <b>Bulunan coin sayısı: <span id="count">0</span></b>
+</div>
+<div class="card">
+<table>
+<thead>
+<tr><th>COIN</th><th>1 SAAT</th><th>4 SAAT</th></tr>
+</thead>
+<tbody id="results">
+<tr><td colspan="3">Henüz tarama yapılmadı.</td></tr>
+</tbody>
+</table>
+</div>
+<p class="info">Yalnızca Binance Spot USDT pariteleri taranır. Bu araç alım-satım tavsiyesi vermez.</p>
+
+<script>
+const bases=[
+"https://data-api.binance.vision",
+"https://api.binance.com"
+];
+
+async function getData(path){
+  let lastError;
+  for(const base of bases){
+    try{
+      const r=await fetch(base+path);
+      if(!r.ok) throw new Error("HTTP "+r.status);
+      return await r.json();
+    }catch(e){lastError=e;}
+  }
+  throw lastError || new Error("Veri alınamadı");
+}
+
+async function nineGreen(symbol,interval){
+  const rows=await getData(
+    "/api/v3/klines?symbol="+symbol+
+    "&interval="+interval+"&limit=10"
+  );
+  if(!Array.isArray(rows)||rows.length<10) return false;
+
+  const closed=rows.slice(0,-1).slice(-9);
+  return closed.length===9 &&
+    closed.every(c=>Number(c[4])>Number(c[1]));
+}
+
+async function scan(){
+  const btn=document.querySelector("button");
+  btn.disabled=true;
+  document.getElementById("results").innerHTML="";
+  document.getElementById("count").textContent="0";
+
+  try{
+    document.getElementById("status").textContent=
+      "Binance coin listesi alınıyor...";
+
+    const info=await getData("/api/v3/exchangeInfo");
+    const symbols=info.symbols.filter(s=>
+      s.status==="TRADING" &&
+      s.quoteAsset==="USDT" &&
+      s.isSpotTradingAllowed
+    );
+
+    let done=0;
+    let matches=[];
+    let next=0;
+
+    document.getElementById("status").textContent=
+      symbols.length+" coin taranacak...";
+
+    async function worker(){
+      while(next<symbols.length){
+        const i=next++;
+        const s=symbols[i];
+
+        try{
+          const [oneHour,fourHour]=await Promise.all([
+            nineGreen(s.symbol,"1h"),
+            nineGreen(s.symbol,"4h")
+          ]);
+
+          if(oneHour && fourHour){
+            matches.push(s.symbol);
+            document.getElementById("count").textContent=matches.length;
+            document.getElementById("results").innerHTML=
+              matches.sort().map(x=>
+                "<tr><td>"+x+"</td>"+
+                '<td class="green">9/9 🟢</td>'+
+                '<td class="green">9/9 🟢</td></tr>'
+              ).join("");
+          }
+        }catch(e){}
+
+        done++;
+        document.getElementById("status").textContent=
+          "Taranıyor: "+done+"/"+symbols.length+
+          " | Bulunan: "+matches.length;
+      }
+    }
+
+    await Promise.all(
+      Array.from({length:6},()=>worker())
+    );
+
+    document.getElementById("status").textContent=
+      "Tarama tamamlandı. "+done+" coin kontrol edildi.";
+
+    if(matches.length===0){
+      document.getElementById("results").innerHTML=
+        '<tr><td colspan="3">Koşullara uyan coin bulunamadı.</td></tr>';
+    }
+  }catch(e){
+    document.getElementById("status").textContent=
+      "Hata: "+e.message+" | Daha sonra tekrar deneyin.";
+  }finally{
+    btn.disabled=false;
+  }
+}
+</script>
+</body>
+</html>
